@@ -334,12 +334,12 @@ class DBSDataProvider(DataProvider):
                            'pset_hash':'NO_PSET_HASH', 'global_tag':'TAG',
                            'app_name':'Generator', 'output_module_label':'TEST'}]
             oconfig = row['dataset'].get('output_configs', def_config)
-            doc = {'primary_ds_name': prim, 'processing_ds_name': proc,
+            doc = {'primary_ds_name': prim, 'processed_ds_name': "%s-%s-v%s" % (acq_era, proc, proc_ver),
                 'data_tier_name': tier, 'physics_group_name': group,
                 'acquisition_era_name': acq_era, 'processing_version': proc_ver,
                 'xtcrosssection': 0.1, 'output_configs':oconfig,
                 'primary_ds_type':'mc', 'dataset_access_type': 'valid',
-                'prep_id':1, 'dataset': name}
+                'prep_id':1, 'dataset': "/%s/%s-%s-v%s/%s" % (prim, acq_era, proc, proc_ver, tier)}
             row['dataset'].update(doc)
             del row['dataset']['name']
         return output
@@ -373,25 +373,24 @@ class DBSDataProvider(DataProvider):
         tier = self.tiers(1)[0]
 
         # generate datasets
-        proc = 'proc-%s' % proc_era['processing_era']['processing_version']
         attrs = {'prim':prim['prim_ds']['primary_ds_name'],
                  'processing_version':proc_era['processing_era']['processing_version'],
                  'acquisition_era_name': acq_era['acquisition_era']['acquisition_era_name'],
-                 'proc': proc,
                  'tier':tier['tier']['data_tier_name']}
         dataset = self.datasets(1, **attrs)[0]
 
         # generate blocks
-        block = self.blocks(1)[0]
+        attrs['proc'] = dataset.get('dataset').get("processed_ds_name")
+        block = self.blocks(1, **attrs)[0]
 
         # generate files
-        files = self.files(number_of_files)
+        files = [this_file.get("file") for this_file in self.files(number_of_files, **attrs)]
 
         # generate file config info
         file_info = []
         for lfn in files:
             doc = dict(info)
-            doc.update({'lfn':lfn['file']['logical_file_name']})
+            doc.update({'lfn':lfn['logical_file_name']})
             file_info.append(doc)
         rec = dict(dataset_conf_list=[info], file_conf_list=file_info,
                 dataset=dataset['dataset'], block=block['block'],
@@ -412,15 +411,19 @@ class DBSDataProvider(DataProvider):
 
     def files(self, number, **attrs):
         "Generate DBS files meta-data"
+        era = attrs.get('acquisition_era_name', 'era')
         prim = attrs.get('prim', 'prim')
         proc = attrs.get('proc', 'proc')
         tier = attrs.get('tier', 'tier')
-        oconfig = attrs.get('output_configs', {'release_version':'CMSSW_TEST',
+        proc_ver = attrs.get("processing_version", 4711)
+
+        oconfig = attrs.get('output_configs',{'release_version':'CMSSW_TEST',
                                               'pset_hash':'NO_PSET_HASH',
                                               'app_name':'Generator',
                                               'output_module_label':'TEST',
                                               'global_tag':'TAG'})
-        for key in ['prim', 'proc', 'tier', 'output_configs']:
+
+        for key in ['prim', 'proc', 'tier','output_configs','acquisition_era_name','processing_version']:
             if  attrs.has_key(key):
                 del attrs[key]
         path = '/%s/%s/%s' % (prim, proc, tier)
@@ -428,9 +431,9 @@ class DBSDataProvider(DataProvider):
         # /store/data/acq_era/prim_dataset/data_tier/proc_version/lfn_counter/f.root
         idx = 0
         for row in output:
-            ver = '%s-v1' % proc
+            ver = '%s' % proc_ver
             counter = str(idx).zfill(9)
-            prefix = '/store/data/era/%s/%s/%s/%s/' % (prim, tier, ver, counter)
+            prefix = '/store/data/%s/%s/%s/%s/%s/' % (era, prim, tier, ver, counter)
             name = prefix + row['file']['name']
             size = random.randint(1000, 1000000)
             ftype = generate_uid(1, ['EDM', 'ROOT'], self._fixed)
@@ -442,7 +445,7 @@ class DBSDataProvider(DataProvider):
                 'file_parent_list': [], 'auto_cross_section': 0.0,
                 'event_count': random.randint(10, 10000),
                 'dataset': path,
-                'file_type_id': 1, 'md5':'NOTSET'}
+                'file_type': 'EDM', 'md5':'NOTSET'}
             row['file'].update(doc)
             for att in ['name']:
                 del row['file'][att]
